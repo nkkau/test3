@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Title</title>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <style>
+        svg {
+            border: solid 1px gray;
+        }
+        {
+            font-family: Saira;
+        }
+        .bar {
+            fill: orange;
+        }
+        .label {
+            font-size: 9pt;
+        }
+        .category {
+            text-anchor: end;
+        }
+    </style>
+</head>
+<body onload='init()'>
+<h2><span id="chart">Average</span> Movies: Budget vs Gross</h2>
+<svg class="bar-chart"></svg>
+<form>
+    <button type="button" id="overview">Overview</button>
+    <button type="button" id="lowb">Low Budget Film</button>
+    <button type="button" id="medb">Med Budget Film</button>
+    <button type="button" id="highb">High Budget Film</button>
+    <button type="button" style=background-color:Gold id="ani">Animation</button>
+    <button type="button" style=background-color:Red id="adv">Adventure</button>
+    <button type="button" style=background-color:LightGreen id="com">Comedy</button>
+    <button type="button" style=background-color:DarkGray id="hor">Horror</button>
+    <button type="button" style=background-color:SkyBlue id="dra">Drama</button>
+</form>
+<script>
+async function init() {
+try {
+  let alldata = await d3.csv('data/mv02.csv', d => {
+    if ((+d.budget > 0) && (+d.gross > 0)) {
+      return {name: d.name, roi: +d.gross/+d.budget, released: d.released, genre: d.genre,  rating: d.rating, budget: +d.budget, gross: +d.gross, score: +d.score, year: +d.year,  star: d.star};
+    }
+  }); //csv
+  // Insert D3 code here
+  //Get a subset of movies that have the specified budget range (low-high)
+getBudgetFilm = function(data, low, high) {
+ let ret = [];
+  data.forEach(function(d) {
+    if ((d.budget >= low) && (d.budget < high)) {
+      ret.push(d);
+    }
+ });
+ return ret;
+}
+//Get a subset of movies that are in the specified genre. Genre is a d3.set.
+getGenreFilm = function(data, genre) {
+ let ret = [];
+  data.forEach(function(d) {
+    if (genre.has(d.genre)) {
+      ret.push(d);
+    }
+ });
+ return ret;
+}
+//Generate a list of data, one for each scene (chart)
+gendata = function(alldata) {
+  let ret = [];
+  ret[0] = alldata;
+  //150M = 150000000
+  ret[1] = getBudgetFilm(alldata, 0, 20000000);
+  ret[2] = getBudgetFilm(alldata, 20000000, 80000000);
+  ret[3] = getBudgetFilm(alldata, 80000000, 900000000);
+
+  let drama = d3.set().add("Drama").add("Crime").add("Biography").add("Fantasy").add("Mystery").add("Romance").add("Western")
+  let horror = d3.set().add("Horror")
+  let comedy = d3.set().add("Comedy")
+  let adventure = d3.set().add("Action").add("Adventure").add("Sci-Fi").add("Thriller")
+  let animation = d3.set().add("Animation")
+
+  ret[4] = getGenreFilm(alldata, animation);
+  ret[5] = getGenreFilm(alldata, adventure);
+  ret[6] = getGenreFilm(alldata, comedy);
+  ret[7] = getGenreFilm(alldata, horror);
+  ret[8] = getGenreFilm(alldata, drama);
+
+  return ret;
+}
+data = gendata(alldata);
+//SVG generation for the scenes
+{
+  let animation = "Gold",
+      adventure = "Red",
+      comedy = "LightGreen",
+      horror = "DarkGray",
+      drama = "SkyBlue";
+
+  //Find the max budget and gross for the scene
+  let _maxvalue = function(data) {
+      let maxbudget = d3.max(data, function(d) {return d.budget});
+      let maxgross = d3.max(data, function(d) {return d.gross});
+      return {budget: maxbudget, gross: maxgross};
+  }
+  let maxvalue = _maxvalue(alldata);
+  //let maxvalue = _maxvalue(data[chart.current.index]);
+  let formatdollar = d3.format(".2s");
+  let formatpercent = d3.format(".0%");
+
+  //key corresponds to the button id. index for each scene
+  const charts = [
+    {key: "overview", title: "2010-2016", color: "blue", index: 0},
+    {key: "lowb", title: "Low Investment", color: "orange", index: 1},
+    {key: "medb", title: "Mid Investment", color: "blue", index: 2},
+    {key: "highb", title: "High Investment", color: "red", index: 3},
+    {key: "ani", title: "Animation", color: "orange", index: 4},
+    {key: "adv", title: "Adventure", color: "blue", index: 5},
+    {key: "com", title: "Comedy", color: "red", index: 6},
+    {key: "hor", title: "Horror", color: "red", index: 7},
+    {key: "dra", title: "Drama", color: "red", index: 8}
+  ];
+
+  // Current scene
+  const chart = {
+        width: 0,
+        height: 0,          // the height is set after data is loaded
+        current: charts[0]  // chart to display first
+  }
+
+  // scale functions and formats
+  //const barScale = d3.scaleLinear().range([0, 600]);
+  //const colorScale = d3.scaleLinear().range([0, 1]);
+  //const format = d3.format(".2f");
+
+  let tooltip = d3.select("body")
+                  .append("div")
+                  .style("position", "absolute")
+                  .style("font-family", "'Open Sans', sans-serif")
+                  .style("font-size", "12px")
+                  .style("z-index", "10")
+                  .style("visibility", "hidden")
+                  .style("background-color", "lightgray")
+                  .style("padding", "5px");
+
+  // the SVG container
+  let w = 860;
+  let h = 400;
+  let margin = {top: 10, right: 30, bottom: 30, left: 60},
+  width = w - margin.left - margin.right,
+  height = h - margin.top - margin.bottom;
+  let svg = d3.select("svg.bar-chart")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform",
+                  "translate(" + margin.left + "," + margin.top + ")")
+
+  //Assign fill color for each gnere
+  function genreColor(d) {
+    if (d.genre == "Animation") {
+        return animation;
+    }
+    else if ((d.genre == "Action") ||
+             (d.genre == "Adventure") ||
+             (d.genre == "Sci-Fi") ||
+             (d.genre == "Thriller")
+            ){
+        return adventure;
+   }
+   else if (d.genre == "Comedy") {
+        return comedy;
+   }
+   else if (d.genre == "Horror") {
+        return horror;
+   }
+   else if ((d.genre == "Drama") ||
+            (d.genre == "Crime") ||
+            (d.genre == "Biography") ||
+            (d.genre == "Fantasy") ||
+            (d.genre == "Mystery") ||
+            (d.genre == "Romance") ||
+            (d.genre == "Western")
+           ){
+        return drama;
+   }
+   return drama
+    /* https://css-tricks.com/snippets/css/named-colors-and-hex-equivalents/
+    */
+  }
+
+  d3.selectAll("button")
+    .on("click", function() {
+        chart.current = charts.filter(c => c.key == this.id)[0]; // the button's ID
+        draw();
+    });
+
+  //initial draw (default - overview)
+  draw();
+
+  //Drawing function for each scene
+  function draw() {
+    maxvalue = _maxvalue(data[chart.current.index]);
+    svg.remove();
+    svg = d3.select("svg.bar-chart")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform",
+              "translate(" + margin.left + "," + margin.top + ")");
+    setupView();
+
+    //x-axis with full domain
+    let xx = d3.scaleLinear()
+            .domain([0, maxvalue.budget])
+            .range([ 0, width ]);
+    //Initial x-axis for animimation
+    let x = d3.scaleLinear()
+            .domain([0, 0])
+            .range([ 0, width ]);
+
+     svg.append("g")
+            .attr("class", "myXaxis")   // A class is given to the X axis, so that it can be modified later
+            .attr("transform", "translate(0," + height + ")")
+            .call(d3.axisBottom(x).tickFormat(formatdollar))
+            .attr("opacity", "0")
+
+    // Add Y axis
+    let y = d3.scaleLinear()
+            .domain([0, maxvalue.gross])
+            .range([ height, 0 ]);
+     svg.append("g")
+            .attr("class", "myYaxis")
+            //.attr("transform", "translate(0," + height + ")")
+            .call(d3.axisLeft(y).tickFormat(formatdollar))
+            .attr("opacity", "0")
+
+    //ROI lines
+    //Define the loss line and area
+    var dataloss = [[0, 0], [maxvalue.budget, maxvalue.budget]];
+
+    var lineloss = d3.line()
+                   .x(function(d) { return xx(d[0]);})
+                   .y(function(d) { return y(d[1]);});
+    // define the loss area
+    var arealoss = d3.area()
+                    .x(function(d) { return xx(d[0]);})
+                    .y1(function(d) { return y(d[1]);})
+                    .y0(height);
+    //draw the loss line
+    svg.append('g')
+        .append('path')
+        .datum(dataloss)
+        .attr("class", "line")
+        .attr('d', lineloss)
+        .style("stroke", "#aaa"); //gray color
+   //draw the loss area
+    svg.append('g')
+      .append('path')
+        .datum(dataloss)
+        .attr("class", "area")
+        .attr('d', arealoss)
+        .attr("opacity", "0.2")
+        .style("fill", "red");
+    //write the loss text
+    svg.append('g')
+        .append('text')
+        .text(numloss(data[chart.current.index]) + " of " + data[chart.current.index].length + " lost money: ROI<100%")
+        .attr("x", xx(maxvalue.budget))
+        .attr("y", y(maxvalue.budget))
+        //.attr("dy",".35em")
+        .attr("opacity", "0.7")
+        .style("text-anchor","end")
+        .style("stroke", "red")
+        .style("font-family", "Saira")
+        .style("font-size", "11px");
+
+    //Define the profit line and area
+    var dataprofit = [[0, 0], [maxvalue.budget, maxvalue.budget*1.5]];
+
+    //define the 150% profit line
+    var lineprofit = d3.line()
+                   .x(function(d) { return xx(d[0]);})
+                   .y(function(d) { return y(d[1]);});
+    // define the profit area
+    var areaprofit = d3.area()
+                    .x(function(d) { return xx(d[0]);})
+                    .y1(function(d) { return y(d[1]);})
+                    .y0(0);
+    //draw the profit line
+    svg.append('g')
+        .append('path')
+        .datum(dataprofit)
+        .attr("class", "line")
+        .attr('d', lineprofit)
+        .style("stroke", "#aaa"); //gray color
+   //draw the profit area
+    svg.append('g')
+        .append('path')
+        .datum(dataprofit)
+        .attr("class", "area")
+        .attr('d', areaprofit)
+        .attr("opacity", "0.2")
+        .style("fill", "green");
+    //write the profit text
+    svg.append('g')
+        .append('text')
+        .text("Good profit: ROI>150%")
+        .attr("x", xx(maxvalue.budget))
+        .attr("y", y(maxvalue.budget*1.5))
+        //.attr("dy",".35em")
+        .attr("opacity", "0.7")
+        .style("text-anchor","end")
+        .style("stroke", "green")
+        .style("font-family", "Saira")
+        .style("font-size", "11px");
+
+      // Add a dot for each movie
+    svg.append('g')
+          .selectAll("dot")
+          .data(data[chart.current.index])
+          .enter()
+          .append("circle")
+          .attr("cx", function(d) { return x(0); } )
+          .attr("cy", function(d) { return y(0); } )
+          .attr("r", 3.5)
+          .style("fill", function(d) {return genreColor(d);})
+          .style("stroke", "black")
+          .on("mouseover", d => tooltip.style("visibility", "visible")
+                                .text(d.name + ": Gross=$" + formatdollar(d.gross) + " (ROI=" + formatpercent(d.roi) + ")"))
+			    .on("mousemove", d => tooltip.style("top", (d3.event.pageY-10)+"px")
+                                .style("left", (d3.event.pageX+10)+"px")
+                                .text(d.name + ": Gross=$" + formatdollar(d.gross) + " (ROI=" + formatpercent(d.roi) + ")"))
+			    .on("mouseout", d => tooltip.style("visibility", "hidden"));
+
+    // new X axis after animation
+    x.domain([0, maxvalue.budget])
+    svg.select(".myXaxis")
+          .transition()
+          .duration(2000)
+          .attr("opacity", "1")
+          .call(d3.axisBottom(x).tickFormat(formatdollar));
+
+    // new Y axis after animation
+    y.domain([0, maxvalue.gross])
+    svg.select(".myYaxis")
+          .transition()
+          .duration(2000)
+          .attr("opacity", "1")
+          .call(d3.axisLeft(y).tickFormat(formatdollar));
+
+    //new dot position after animation
+    svg.selectAll("circle")
+          .transition()
+          .delay(function(d,i){return(i*3)})
+          //.delay(1000)
+          .duration(3000)
+          .attr("cx", function (d) { return x(d.budget); } )
+          .attr("cy", function (d) { return y(d.gross); } )
+          .attr("opacity", "1.0");
+  }
+
+  //setup view of the scene
+  function setupView() {
+      d3.selectAll("button")
+          .property("disabled", false);
+        // enable only buttons that are not current chart
+        d3.select("#" + chart.current.key)
+          .property("disabled", true);
+
+        // update page title
+        d3.select("#chart")
+          .text(chart.current.title);
+
+  }
+
+  //find the number of movie losing money in a given dataset
+  function numloss(data) {
+    let n = 0;
+    data.forEach(function(d) {
+      if (d.gross < d.budget) {
+        n++;
+      }
+    });
+    return n;
+  }
+
+}
+} //try
+catch(e) {
+    console.log('Error reading csv file: ', e);
+} //catch
+} //async init()
+</script>
+</body>
+</html>
